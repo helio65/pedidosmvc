@@ -61,8 +61,6 @@ begin
   Self.FFactory                  := TFactory.Create;
   Self.FView.btnLogar.OnClick    := Self.btnLogarOnClick;
   Self.FView.btnCancelar.OnClick := Self.btnCancelarOnClick;
-  Self.FView.edtUsuario.Text     := 'h.oliveira';
-  Self.FView.edtSenha.Text       := '65@Raimunda';
   Self.FView.ShowModal;
 end;
 
@@ -108,12 +106,12 @@ begin
   if Self.FQuery.FieldByName('TX_SENHA').IsNull then
   begin
     Inc(FTentativas);
-    Application.MessageBox('O usuário ou senha inválido', 'Atenção', MB_OK+MB_ICONERROR);
+    Application.MessageBox('O usuÃ¡rio ou senha invÃ¡lido', 'AtenÃ§Ã£o', MB_OK+MB_ICONERROR);
     Result := False;
   end else if Self.FQuery.FieldByName('TX_SENHA').AsString <> Self.FFactory.GetStrHashSHA512_256(ASenha) then
   begin
     Inc(FTentativas);
-    Application.MessageBox('O usuário ou senha inválido', 'Atenção', MB_OK+MB_ICONERROR);
+    Application.MessageBox('O usuÃ¡rio ou senha invÃ¡lido', 'AtenÃ§Ã£o', MB_OK+MB_ICONERROR);
     Result := False;
   end;
 
