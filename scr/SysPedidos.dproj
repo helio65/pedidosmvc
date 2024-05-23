@@ -5,7 +5,7 @@
         <FrameworkType>VCL</FrameworkType>
         <MainSource>SysPedidos.dpr</MainSource>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Config Condition="'$(Config)'==''">Release</Config>
         <Platform Condition="'$(Platform)'==''">Win64</Platform>
         <TargetedPlatforms>3</TargetedPlatforms>
         <AppType>Application</AppType>
@@ -107,7 +107,6 @@
         <VerInfo_Locale>1033</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
-        <AppEnableRuntimeThemes>true</AppEnableRuntimeThemes>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
@@ -175,12 +174,18 @@
             <FormType>dfm</FormType>
         </DCCReference>
         <DCCReference Include="Controller\Controller.Pedido.pas"/>
-        <DCCReference Include="View\View.Pedido_Itens.pas">
-            <Form>FrmPedido_Itens</Form>
+        <DCCReference Include="View\View.PedidoItens.pas">
+            <Form>FrmPedidoItens</Form>
             <FormType>dfm</FormType>
         </DCCReference>
-        <DCCReference Include="Model\Model.Pedido_Itens.pas"/>
-        <DCCReference Include="Controller\Controller.Pedido_Itens.pas"/>
+        <DCCReference Include="Model\Model.PedidoItens.pas"/>
+        <DCCReference Include="Controller\Controller.PedidoItens.pas"/>
+        <DCCReference Include="Dao\Dao.Usuario.pas"/>
+        <DCCReference Include="Dao\Dao.Empresa.pas"/>
+        <DCCReference Include="Dao\Dao.Produto.pas"/>
+        <DCCReference Include="Dao\Dao.Imagens.pas"/>
+        <DCCReference Include="Dao\Dao.Pedido.pas"/>
+        <DCCReference Include="Dao\Dao.PedidoItens.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
@@ -202,23 +207,25 @@
                     <Source Name="MainSource">SysPedidos.dpr</Source>
                 </Source>
                 <Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckUCDataConnector.bpl">SWDelphi - User Control DataConnector</Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckmd5.bpl">SWDelphi - User Control MD5SUM</Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckUserControl_RT.bpl">SWDelphi - User Control RT</Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckUserControl_DT.bpl">SWDelphi - User Control</Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckUCADOConn.bpl">SWDelphi - User Control ADO Connector</Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckFireDacConn.bpl">SWDelphi - User Control FireDac Connector</Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckUCIBXConn.bpl">SWDelphi - User Control IBX Connector</Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckUCDBXConn.bpl">SWDelphi - User Control DBExpress Connector</Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckUCDataSnapConn.bpl">SWDelphi - User Control DataSnap Connector</Excluded_Packages>
-                    <Excluded_Packages Name="D:\Componentes\usercontrol-sd\Lib\Delphi\LibD26\pckUCRestConn.bpl">SWDelphi - User Control Rest Connector</Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k260.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp260.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k280.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp280.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
                 </Excluded_Packages>
             </Delphi.Personality>
             <Deployment Version="4">
                 <DeployFile LocalName="..\bin\SysPedidos.exe" Configuration="Debug" Class="ProjectOutput"/>
+                <DeployFile LocalName="..\bin\SysPedidos.exe" Configuration="Debug" Class="ProjectOutput">
+                    <Platform Name="Win64">
+                        <RemoteName>SysPedidos.exe</RemoteName>
+                        <Overwrite>true</Overwrite>
+                    </Platform>
+                </DeployFile>
                 <DeployFile LocalName="..\bin\SysPedidos.rsm" Configuration="Debug" Class="DebugSymbols"/>
+                <DeployFile LocalName="..\bin\SysPedidos.rsm" Configuration="Debug" Class="DebugSymbols">
+                    <Platform Name="Win64">
+                        <RemoteName>SysPedidos.rsm</RemoteName>
+                        <Overwrite>true</Overwrite>
+                    </Platform>
+                </DeployFile>
                 <DeployClass Name="AdditionalDebugSymbols">
                     <Platform Name="iOSSimulator">
                         <Operation>1</Operation>

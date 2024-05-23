@@ -4,20 +4,19 @@ interface
 
 uses
   Vcl.Forms, Winapi.Windows, Winapi.Messages, System.Classes, System.SysUtils,
-  System.Generics.Collections, Framework.Factory, Model.Empresa, View.Empresa,
-  FireDAC.Comp.Client, FireDAC.Stan.Param, Dao.Conexao, Vcl.Dialogs,
+  System.Generics.Collections, FireDAC.Comp.Client, FireDAC.Stan.Param, Vcl.Dialogs,
   System.JSON, System.Variants, REST.Types, REST.Client, Data.Bind.Components,
-  Data.Bind.ObjectScope;
+  Data.Bind.ObjectScope, Framework.Factory,
+  Dao.Conexao, Dao.Empresa, Model.Empresa, View.Empresa;
 
 type
   TEmpresaController = class
   private
-    FStrB : TStringBuilder;
-    FQuery : TFDQuery;
     FView : TFrmEmpresa;
     FFactory : TFactory;
     FStatus : TStatus;
     FEmpresaModel : TEmpresaModel;
+    FEmpresaDao : TEmpresaDao;
     procedure btnFecharClick(Sender : TObject);
     procedure btnNovoClick(Sender : TObject);
     procedure btnEditarClick(Sender: TObject);
@@ -31,10 +30,6 @@ type
     procedure edtCNPJonExit(Sender: TObject);
     procedure gridBaseDblClick(Sender: TObject);
   public
-    procedure Insert;
-    function Delete(co_empresa : Integer) : Boolean;
-    procedure Save(aObject : TEmpresaModel);
-    function GetAll : TObjectList<TEmpresaModel>;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -49,7 +44,7 @@ begin
   begin
     Self.FStatus := TStatus.dsDelete;
     Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-    if Self.Delete(Self.FView.FDMEmpresaCO_EMPRESA.AsInteger) then
+    if Self.FEmpresaDao.Delete(Self.FView.FDMEmpresaCO_EMPRESA.AsInteger) then
     begin
       if Self.FView.pgcPrincipal.ActivePage = Self.FView.tabCadastro then
       begin
@@ -71,7 +66,7 @@ begin
   if Self.FStatus = TStatus.dsEdit then
   begin
     Self.FFactory.ClearControls(Self.FView);
-    Self.FView.edtCodigo.Text      := Self.FView.FDMEmpresaCO_EMPRESA.AsString;
+    Self.FView.edtCodigo.Text      := FormatFloat('000000', Self.FView.FDMEmpresaCO_EMPRESA.AsInteger);
     Self.FView.edtCNPJ.Text        := Self.FView.FDMEmpresaNU_CNPJ.AsString;
     Self.FView.edtRazaoSocial.Text := Self.FView.FDMEmpresaNM_RAZAO_SOCIAL.AsString;
     Self.FView.edtEmail.Text       := Self.FView.FDMEmpresaTX_EMAIL.AsString;
@@ -125,14 +120,36 @@ begin
     end else
     begin
       if Self.FStatus = TStatus.dsEdit then
-        Self.FEmpresaModel.co_empresa := Self.FView.FDMEmpresaCO_EMPRESA.AsInteger
+      begin
+        Self.FEmpresaModel.co_empresa := Self.FView.FDMEmpresaCO_EMPRESA.AsInteger;
+        Self.FEmpresaModel.dt_alteracao    := Self.FFactory.GetCurrentTimeStamp(DMConexao.Conexao);
+      end
       else
         Self.FEmpresaModel.co_empresa    := StrToInt(Self.FView.edtCodigo.Text);
+
       Self.FEmpresaModel.nm_razao_social := Self.FView.edtRazaoSocial.Text;
       Self.FEmpresaModel.nu_cnpj         := Self.FView.edtCNPJ.Text;
       Self.FEmpresaModel.tx_email        := Self.FView.edtEmail.Text;
-      Self.FEmpresaModel.dt_alteracao    := Self.FFactory.GetCurrentTimeStamp(DMConexao.Conexao);
-      Self.Save(Self.FEmpresaModel);
+
+      if Self.FStatus = TStatus.dsInsert then
+      begin
+
+        Self.FEmpresaDao.Insert(Self.FEmpresaModel);
+
+        if not Self.FView.FDMEmpresa.Active then
+          Self.FView.FDMEmpresa.Open;
+
+        Self.FView.FDMEmpresa.Insert;
+        Self.FView.FDMEmpresaCO_EMPRESA.AsInteger     := StrtoInt(Self.FView.edtCodigo.Text);
+        Self.FView.FDMEmpresaNM_RAZAO_SOCIAL.AsString := Self.FView.edtRazaoSocial.Text;
+        Self.FView.FDMEmpresaNU_CNPJ.AsString         := Self.FView.edtCNPJ.Text;
+        Self.FView.FDMEmpresaTX_EMAIL.AsString        := Self.FView.edtEmail.Text;
+        Self.FView.FDMEmpresa.Post;
+
+      end else if Self.FStatus = TStatus.dsEdit then
+        Self.FEmpresaDao.Update(Self.FEmpresaModel);
+
+
       Self.FStatus := TStatus.dsBrowse;
       Self.FFactory.ControlControls(Self.FView, Self.FStatus);
       Self.FFactory.EnableDisableControls(Self.FView, aDisable);
@@ -144,7 +161,13 @@ end;
 
 procedure TEmpresaController.btnNovoClick(Sender: TObject);
 begin
-  Self.Insert;
+  Self.FFactory.ClearControls(Self.FView);
+  Self.FView.pgcPrincipal.ActivePage := Self.FView.tabCadastro;
+  Self.FFactory.EnableDisableControls(Self.FView, aEnable);
+  Self.FView.edtCNPJ.SetFocus;
+  Self.FView.edtCodigo.Text := FormatFloat('000000', Self.FEmpresaDao.GetNewID('INC_CO_EMPRESA'));
+  Self.FStatus := TStatus.dsInsert;
+  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
 end;
 
 procedure TEmpresaController.btnVoltarClick(Sender: TObject);
@@ -154,9 +177,7 @@ end;
 
 constructor TEmpresaController.Create;
 begin
-  Self.FStrB                              := TStringBuilder.Create;
-  Self.FQuery                             := TFDQuery.Create(nil);
-  Self.FQuery.Connection                  := DMConexao.Conexao;
+  Self.FEmpresaDao                        := TEmpresaDao.Create;
   Self.FFactory                           := TFactory.Create;
   Self.FEmpresaModel                      := TEmpresaModel.Create;
   Self.FView                              := TFrmEmpresa.Create(nil);
@@ -188,40 +209,11 @@ begin
   Self.FView.ShowModal;
 end;
 
-function TEmpresaController.Delete(co_empresa: Integer): Boolean;
-begin
-  Self.FStatus := TStatus.dsDelete;
-  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-  Self.FStrB.Clear;
-  Self.FStrB.AppendLine('DELETE FROM EMPRESA               ')
-            .AppendLine('  WHERE CO_EMPRESA = :CO_EMPRESA; ');
-
-  Self.FQuery.SQL.Clear;
-  Self.FQuery.SQL.Text                            := Self.FStrB.ToString;
-  Self.FQuery.ParamByName('CO_EMPRESA').AsInteger := co_empresa;
-  if not Self.FQuery.Connection.InTransaction then
-    Self.FQuery.Connection.StartTransaction;
-  try
-    Self.FQuery.ExecSQL;
-    Self.FQuery.Connection.Commit;
-    Result := True;
-  except
-    on e : exception do
-    begin
-      Self.FStatus := TStatus.dsBrowse;
-      Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-      Self.FQuery.Connection.Rollback;
-      raise Exception.Create(e.Message);
-    end;
-  end;
-end;
-
 destructor TEmpresaController.Destroy;
 begin
-  FreeAndNil(Self.FStrB);
-  FreeAndNil(Self.FQuery);
   FreeAndNil(Self.FFactory);
   FreeAndNil(Self.FEmpresaModel);
+  FreeandNil(Self.FEmpresaDao);
   FreeAndNil(Self.FView);
   inherited;
 end;
@@ -260,7 +252,7 @@ var
   aIndex: Integer;
 begin
   Self.FView.pgcPrincipal.ActivePage := Self.FView.tabConsulta;
-  LEmpresas := Self.GetAll;
+  LEmpresas := Self.FEmpresaDao.GetAll;
   try
     if LEmpresas.Count > 0 then
     begin
@@ -289,46 +281,6 @@ begin
     Self.FFactory.EnableDisableControls(Self.FView, aDisable);
   finally
     FreeAndNil(LEmpresas);
-  end;
-end;
-
-function TEmpresaController.GetAll: TObjectList<TEmpresaModel>;
-var
-  LEmpresa : TEmpresaModel;
-begin
-  Self.FStrB.Clear;
-  Self.FStrB.AppendLine('SELECT CO_EMPRESA, NM_RAZAO_SOCIAL, NU_CNPJ, TX_EMAIL, ')
-            .AppendLine('       DT_CADASTRO, DT_ALTERACAO                       ')
-            .AppendLine('  FROM EMPRESA                                         ')
-            .AppendLine('  ORDER BY NM_RAZAO_SOCIAL;                            ');
-
-  Self.FQuery.Close;
-  Self.FQuery.SQL.Clear;
-  Self.FQuery.SQL.Text := Self.FStrB.ToString;
-  if not Self.FQuery.Connection.InTransaction then
-    Self.FQuery.Connection.StartTransaction;
-  try
-    Self.FQuery.Open;
-    Self.FQuery.Connection.Commit;
-  except
-    Self.FQuery.Connection.Rollback;
-  end;
-  Result := TObjectList<TEmpresaModel>.Create;
-  if Self.FQuery.RecordCount > 0 then
-  begin
-    while not Self.FQuery.Eof do
-    begin
-      LEmpresa                 := TEmpresaModel.Create;
-      LEmpresa.co_empresa      := Self.FQuery.FieldByName('CO_EMPRESA').AsInteger;
-      LEmpresa.nm_razao_social := Self.FQuery.FieldByName('NM_RAZAO_SOCIAL').AsString;
-      LEmpresa.nu_cnpj         := Self.FQuery.FieldByName('NU_CNPJ').AsString;
-      LEmpresa.tx_email        := Self.FQuery.FieldByName('TX_EMAIL').AsString;
-      LEmpresa.dt_cadastro     := Self.FQuery.FieldByName('DT_CADASTRO').AsDateTime;
-      if not Self.FQuery.FieldByName('DT_ALTERACAO').IsNull then
-        LEmpresa.dt_alteracao    := Self.FQuery.FieldByName('DT_ALTERACAO').AsDateTime;
-      Result.Add(LEmpresa);
-      Self.FQuery.Next;
-    end;
   end;
 end;
 
@@ -385,87 +337,6 @@ begin
   Self.FStatus                       := TStatus.dsBrowse;
   Self.FFactory.ControlControls(Self.FView, Self.FStatus);
   Self.FFactory.EnableDisableControls(Self.FView, aDisable);
-end;
-
-procedure TEmpresaController.Insert;
-begin
-  Self.FFactory.ClearControls(Self.FView);
-  Self.FView.pgcPrincipal.ActivePage := Self.FView.tabCadastro;
-  Self.FFactory.EnableDisableControls(Self.FView, aEnable);
-  Self.FView.edtCNPJ.SetFocus;
-  Self.FView.edtCodigo.Text := FormatFloat('000000', Self.FFactory.GetNextID('INC_CO_EMPRESA', DMConexao.Conexao));
-  Self.FStatus := TStatus.dsInsert;
-  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-end;
-
-procedure TEmpresaController.Save(aObject: TEmpresaModel);
-begin
-  if Self.FStatus = TStatus.dsInsert then
-  begin
-    Self.FStrB.Clear;
-    Self.FStrB.AppendLine('INSERT INTO EMPRESA (CO_EMPRESA, NM_RAZAO_SOCIAL, NU_CNPJ, TX_EMAIL)      ')
-              .AppendLine('             VALUES (:CO_EMPRESA, :NM_RAZAO_SOCIAL, :NU_CNPJ, :TX_EMAIL); ');
-
-    Self.FQuery.SQL.Clear;
-    Self.FQuery.SQL.Text                                := Self.FStrB.ToString;
-    Self.FQuery.ParamByName('CO_EMPRESA').AsInteger     := aObject.co_empresa;
-    Self.FQuery.ParamByName('NM_RAZAO_SOCIAL').AsString := aObject.nm_razao_social;
-    Self.FQuery.ParamByName('NU_CNPJ').AsString         := aObject.nu_cnpj;
-    Self.FQuery.ParamByName('TX_EMAIL').AsString        := aObject.tx_email;
-
-    if not Self.FView.FDMEmpresa.Active then
-      Self.FView.FDMEmpresa.Open;
-
-    Self.FView.FDMEmpresa.Insert;
-    Self.FView.FDMEmpresaCO_EMPRESA.AsInteger     := aObject.co_empresa;
-    Self.FView.FDMEmpresaNM_RAZAO_SOCIAL.AsString := aObject.nm_razao_social;
-    Self.FView.FDMEmpresaNU_CNPJ.AsString         := aObject.nu_cnpj;
-    Self.FView.FDMEmpresaTX_EMAIL.AsString        := aObject.tx_email;
-    Self.FView.FDMEmpresa.Post;
-
-    if not Self.FQuery.Connection.InTransaction then
-      Self.FQuery.Connection.StartTransaction;
-    try
-      Self.FQuery.ExecSQL;
-      Self.FQuery.Connection.Commit;
-    except
-      on e : exception do
-      begin
-        Self.FQuery.Connection.Rollback;
-        raise Exception.Create(e.Message);
-      end;
-    end;
-  end else if Self.FStatus = TStatus.dsEdit then
-  begin
-    Self.FStrB.Clear;
-    Self.FStrB.AppendLine('UPDATE EMPRESA                            ')
-              .AppendLine('  SET NM_RAZAO_SOCIAL = :NM_RAZAO_SOCIAL, ')
-              .AppendLine('      NU_CNPJ         = :NU_CNPJ,         ')
-              .AppendLine('      TX_EMAIL        = :TX_EMAIL,        ')
-              .AppendLine('      DT_ALTERACAO    = :DT_ALTERACAO     ')
-              .AppendLine('  WHERE CO_EMPRESA = :CO_EMPRESA;         ');
-
-    Self.FQuery.SQL.Clear;
-    Self.FQuery.SQL.Text                                := Self.FStrB.ToString;
-    Self.FQuery.ParamByName('NM_RAZAO_SOCIAL').AsString := aObject.nm_razao_social;
-    Self.FQuery.ParamByName('NU_CNPJ').AsString         := aObject.nu_cnpj;
-    Self.FQuery.ParamByName('TX_EMAIL').AsString        := aObject.tx_email;
-    Self.FQuery.ParamByName('DT_ALTERACAO').AsDateTime  := aObject.dt_alteracao;
-    Self.FQuery.ParamByName('CO_EMPRESA').AsInteger     := aObject.co_empresa;
-
-    if not Self.FQuery.Connection.InTransaction then
-      Self.FQuery.Connection.StartTransaction;
-    try
-      Self.FQuery.ExecSQL;
-      Self.FQuery.Connection.Commit;
-    except
-      on e : exception do
-      begin
-        Self.FQuery.Connection.Rollback;
-        raise Exception.Create(e.Message);
-      end;
-    end;
-  end;
 end;
 
 end.

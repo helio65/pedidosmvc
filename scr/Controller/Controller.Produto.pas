@@ -4,19 +4,18 @@ interface
 
 uses
   Vcl.Forms, Winapi.Windows, Winapi.Messages, System.Classes, System.SysUtils,
-  System.Generics.Collections, Framework.Factory, Model.Produto, View.Produto,
-  FireDAC.Comp.Client, FireDAC.Stan.Param, Dao.Conexao,
-  Vcl.Dialogs, System.Variants, Controller.Imagens;
+  System.Generics.Collections, FireDAC.Comp.Client, FireDAC.Stan.Param,
+  Vcl.Dialogs, System.Variants, Controller.Imagens, Framework.Factory,
+  Dao.Conexao, Model.Produto, View.Produto, Dao.Produto;
 
 type
   TProdutoController = class
   private
-    FStrB : TStringBuilder;
-    FQuery : TFDQuery;
     FView : TFrmProduto;
     FFactory : TFactory;
     FStatus : TStatus;
     FProdutoModel : TProdutoModel;
+    FProdutoDao : TProdutoDao;
     FImagensController : TImagensController;
     procedure btnFecharClick(Sender : TObject);
     procedure btnNovoClick(Sender : TObject);
@@ -32,10 +31,6 @@ type
     procedure edtValorKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure btnImagensOnClick(Sender: TObject);
   public
-    procedure Insert;
-    function Delete(co_produto : Integer) : Boolean;
-    procedure Save(aObject : TProdutoModel);
-    function GetAll : TObjectList<TProdutoModel>;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -50,7 +45,7 @@ begin
   begin
     Self.FStatus := TStatus.dsDelete;
     Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-    if Self.Delete(Self.FView.FDMProdutoCO_PRODUTO.AsInteger) then
+    if Self.FProdutoDao.Delete(Self.FView.FDMProdutoCO_PRODUTO.AsInteger) then
     begin
       if Self.FView.pgcPrincipal.ActivePage = Self.FView.tabCadastro then
       begin
@@ -126,14 +121,34 @@ begin
     end else
     begin
       if Self.FStatus = TStatus.dsEdit then
-        Self.FProdutoModel.co_produto := Self.FView.FDMProdutoCO_PRODUTO.AsInteger
+      begin
+        Self.FProdutoModel.co_produto := Self.FView.FDMProdutoCO_PRODUTO.AsInteger;
+        Self.FProdutoModel.dt_alteracao := Self.FFactory.GetCurrentTimeStamp(DMConexao.Conexao);
+      end
       else
         Self.FProdutoModel.co_produto := StrToInt(Self.FView.edtCodigo.Text);
       Self.FProdutoModel.tx_descricao := Self.FView.edtDescricao.Text;
       Self.FProdutoModel.vl_venda     := StrToCurr(String(Self.FView.edtValor.Text).Replace('.', ''));
       Self.FProdutoModel.nu_estoque   := StrToFloatDef(Self.FView.edtEstoque.Text, 0);
-      Self.FProdutoModel.dt_alteracao := Self.FFactory.GetCurrentTimeStamp(DMConexao.Conexao);
-      Self.Save(Self.FProdutoModel);
+
+      if Self.FStatus = TStatus.dsInsert then
+      begin
+
+        Self.FProdutoDao.Insert(Self.FProdutoModel);
+
+        if not Self.FView.FDMProduto.Active then
+          Self.FView.FDMProduto.Open;
+
+        Self.FView.FDMProduto.Insert;
+        Self.FView.FDMProdutoCO_PRODUTO.AsInteger  := StrtoInt(Self.FView.edtCodigo.Text);
+        Self.FView.FDMProdutoTX_DESCRICAO.AsString := Self.FView.edtDescricao.Text;
+        Self.FView.FDMProdutoVL_VENDA.AsCurrency   := StrToCurr(String(Self.FView.edtValor.Text).Replace('.', ''));
+        Self.FView.FDMProdutoNU_ESTOQUE.AsFloat    := StrToFloatDef(Self.FView.edtEstoque.Text, 0);
+        Self.FView.FDMProduto.Post;
+
+      end else if Self.FStatus = TStatus.dsEdit then
+        Self.FProdutoDao.Update(Self.FProdutoModel);
+
       Self.FStatus := TStatus.dsBrowse;
       Self.FFactory.ControlControls(Self.FView, Self.FStatus);
       Self.FFactory.EnableDisableControls(Self.FView, aDisable);
@@ -156,7 +171,13 @@ end;
 
 procedure TProdutoController.btnNovoClick(Sender: TObject);
 begin
-  Self.Insert;
+  Self.FFactory.ClearControls(Self.FView);
+  Self.FView.pgcPrincipal.ActivePage := Self.FView.tabCadastro;
+  Self.FFactory.EnableDisableControls(Self.FView, aEnable);
+  Self.FView.edtDescricao.SetFocus;
+  Self.FView.edtCodigo.Text := FormatFloat('000000', Self.FProdutoDao.GetNewID('INC_CO_PRODUTO'));
+  Self.FStatus := TStatus.dsInsert;
+  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
 end;
 
 procedure TProdutoController.btnVoltarClick(Sender: TObject);
@@ -166,11 +187,9 @@ end;
 
 constructor TProdutoController.Create;
 begin
-  Self.FStrB                      := TStringBuilder.Create;
-  Self.FQuery                     := TFDQuery.Create(nil);
-  Self.FQuery.Connection          := DMConexao.Conexao;
   Self.FFactory                   := TFactory.Create;
   Self.FProdutoModel              := TProdutoModel.Create;
+  Self.FProdutoDao                := TProdutoDao.Create;
   Self.FView                      := TFrmProduto.Create(nil);
   Self.FView.KeyPreview           := True;
   Self.FView.btnFechar.OnClick    := Self.btnFecharClick;
@@ -202,40 +221,11 @@ begin
   Self.FView.ShowModal;
 end;
 
-function TProdutoController.Delete(co_produto: Integer): Boolean;
-begin
-  Self.FStatus := TStatus.dsDelete;
-  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-  Self.FStrB.Clear;
-  Self.FStrB.AppendLine('DELETE FROM PRODUTO               ')
-            .AppendLine('  WHERE CO_PRODUTO = :CO_PRODUTO; ');
-
-  Self.FQuery.SQL.Clear;
-  Self.FQuery.SQL.Text                            := Self.FStrB.ToString;
-  Self.FQuery.ParamByName('CO_PRODUTO').AsInteger := co_produto;
-  if not Self.FQuery.Connection.InTransaction then
-    Self.FQuery.Connection.StartTransaction;
-  try
-    Self.FQuery.ExecSQL;
-    Self.FQuery.Connection.Commit;
-    Result := True;
-  except
-    on e : exception do
-    begin
-      Self.FStatus := TStatus.dsBrowse;
-      Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-      Self.FQuery.Connection.Rollback;
-      raise Exception.Create(e.Message);
-    end;
-  end;
-end;
-
 destructor TProdutoController.Destroy;
 begin
-  FreeAndNil(Self.FStrB);
-  FreeAndNil(Self.FQuery);
   FreeAndNil(Self.FFactory);
   FreeAndNil(Self.FProdutoModel);
+  FreeAndNil(Self.FProdutoDao);
   FreeAndNil(Self.FView);
   inherited;
 end;
@@ -266,7 +256,7 @@ var
   aIndex: Integer;
 begin
   Self.FView.pgcPrincipal.ActivePage := Self.FView.tabConsulta;
-  LProdutos := Self.GetAll;
+  LProdutos := Self.FProdutoDao.GetAll;
   try
     if LProdutos.Count > 0 then
     begin
@@ -299,46 +289,6 @@ begin
   end;
 end;
 
-function TProdutoController.GetAll: TObjectList<TProdutoModel>;
-var
-  LProdutos : TProdutoModel;
-begin
-  Self.FStrB.Clear;
-  Self.FStrB.AppendLine('SELECT CO_PRODUTO, TX_DESCRICAO, VL_VENDA, NU_ESTOQUE, ')
-            .AppendLine('       DT_CADASTRO, DT_ALTERACAO                       ')
-            .AppendLine('  FROM PRODUTO                                         ')
-            .AppendLine('  ORDER BY TX_DESCRICAO;                               ');
-
-  Self.FQuery.Close;
-  Self.FQuery.SQL.Clear;
-  Self.FQuery.SQL.Text := Self.FStrB.ToString;
-  if not Self.FQuery.Connection.InTransaction then
-    Self.FQuery.Connection.StartTransaction;
-  try
-    Self.FQuery.Open;
-    Self.FQuery.Connection.Commit;
-  except
-    Self.FQuery.Connection.Rollback;
-  end;
-  Result := TObjectList<TProdutoModel>.Create;
-  if Self.FQuery.RecordCount > 0 then
-  begin
-    while not Self.FQuery.Eof do
-    begin
-      LProdutos              := TProdutoModel.Create;
-      LProdutos.co_produto   := Self.FQuery.FieldByName('CO_PRODUTO').AsInteger;
-      LProdutos.tx_descricao := Self.FQuery.FieldByName('TX_DESCRICAO').AsString;
-      LProdutos.vl_venda     := Self.FQuery.FieldByName('VL_VENDA').AsCurrency;
-      LProdutos.nu_estoque   := Self.FQuery.FieldByName('NU_ESTOQUE').AsFloat;
-      LProdutos.dt_cadastro  := Self.FQuery.FieldByName('DT_CADASTRO').AsDateTime;
-      if not Self.FQuery.FieldByName('DT_ALTERACAO').IsNull then
-        LProdutos.dt_alteracao    := Self.FQuery.FieldByName('DT_ALTERACAO').AsDateTime;
-      Result.Add(LProdutos);
-      Self.FQuery.Next;
-    end;
-  end;
-end;
-
 procedure TProdutoController.gridBaseDblClick(Sender: TObject);
 begin
   if Self.FView.FDMProduto.RecordCount = 0 then
@@ -353,87 +303,6 @@ begin
   Self.FStatus                       := TStatus.dsBrowse;
   Self.FFactory.ControlControls(Self.FView, Self.FStatus);
   Self.FFactory.EnableDisableControls(Self.FView, aDisable);
-end;
-
-procedure TProdutoController.Insert;
-begin
-  Self.FFactory.ClearControls(Self.FView);
-  Self.FView.pgcPrincipal.ActivePage := Self.FView.tabCadastro;
-  Self.FFactory.EnableDisableControls(Self.FView, aEnable);
-  Self.FView.edtDescricao.SetFocus;
-  Self.FView.edtCodigo.Text := FormatFloat('000000', Self.FFactory.GetNextID('INC_CO_PRODUTO', DMConexao.Conexao));
-  Self.FStatus := TStatus.dsInsert;
-  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-end;
-
-procedure TProdutoController.Save(aObject: TProdutoModel);
-begin
-  if Self.FStatus = TStatus.dsInsert then
-  begin
-    Self.FStrB.Clear;
-    Self.FStrB.AppendLine('INSERT INTO PRODUTO (CO_PRODUTO, TX_DESCRICAO, VL_VENDA, NU_ESTOQUE)      ')
-              .AppendLine('             VALUES (:CO_PRODUTO, :TX_DESCRICAO, :VL_VENDA, :NU_ESTOQUE); ');
-
-    Self.FQuery.SQL.Clear;
-    Self.FQuery.SQL.Text                             := Self.FStrB.ToString;
-    Self.FQuery.ParamByName('CO_PRODUTO').AsInteger  := aObject.co_produto;
-    Self.FQuery.ParamByName('TX_DESCRICAO').AsString := aObject.tx_descricao;
-    Self.FQuery.ParamByName('VL_VENDA').AsCurrency   := aObject.vl_venda;
-    Self.FQuery.ParamByName('NU_ESTOQUE').AsFloat    := aObject.nu_estoque;
-
-    if not Self.FView.FDMProduto.Active then
-      Self.FView.FDMProduto.Open;
-
-    Self.FView.FDMProduto.Insert;
-    Self.FView.FDMProdutoCO_PRODUTO.AsInteger  := aObject.co_produto;
-    Self.FView.FDMProdutoTX_DESCRICAO.AsString := aObject.tx_descricao;
-    Self.FView.FDMProdutoVL_VENDA.AsCurrency   := aObject.vl_venda;
-    Self.FView.FDMProdutoNU_ESTOQUE.AsFloat    := aObject.nu_estoque;
-    Self.FView.FDMProduto.Post;
-
-    if not Self.FQuery.Connection.InTransaction then
-      Self.FQuery.Connection.StartTransaction;
-    try
-      Self.FQuery.ExecSQL;
-      Self.FQuery.Connection.Commit;
-    except
-      on e : exception do
-      begin
-        Self.FQuery.Connection.Rollback;
-        raise Exception.Create(e.Message);
-      end;
-    end;
-  end else if Self.FStatus = TStatus.dsEdit then
-  begin
-    Self.FStrB.Clear;
-    Self.FStrB.AppendLine('UPDATE PRODUTO                      ')
-              .AppendLine('  SET TX_DESCRICAO = :TX_DESCRICAO, ')
-              .AppendLine('      VL_VENDA     = :VL_VENDA,     ')
-              .AppendLine('      NU_ESTOQUE   = :NU_ESTOQUE,   ')
-              .AppendLine('      DT_ALTERACAO = :DT_ALTERACAO  ')
-              .AppendLine('  WHERE CO_PRODUTO = :CO_PRODUTO;   ');
-
-    Self.FQuery.SQL.Clear;
-    Self.FQuery.SQL.Text                               := Self.FStrB.ToString;
-    Self.FQuery.ParamByName('TX_DESCRICAO').AsString   := aObject.tx_descricao;
-    Self.FQuery.ParamByName('VL_VENDA').AsCurrency     := aObject.vl_venda;
-    Self.FQuery.ParamByName('NU_ESTOQUE').AsFloat      := aObject.nu_estoque;
-    Self.FQuery.ParamByName('DT_ALTERACAO').AsDateTime := aObject.dt_alteracao;
-    Self.FQuery.ParamByName('CO_PRODUTO').AsInteger    := aObject.co_produto;
-
-    if not Self.FQuery.Connection.InTransaction then
-      Self.FQuery.Connection.StartTransaction;
-    try
-      Self.FQuery.ExecSQL;
-      Self.FQuery.Connection.Commit;
-    except
-      on e : exception do
-      begin
-        Self.FQuery.Connection.Rollback;
-        raise Exception.Create(e.Message);
-      end;
-    end;
-  end;
 end;
 
 end.
