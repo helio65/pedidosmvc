@@ -22,9 +22,15 @@ uses
   Model.Pedido in 'Model\Model.Pedido.pas',
   View.Pedido in 'View\View.Pedido.pas' {FrmPedido},
   Controller.Pedido in 'Controller\Controller.Pedido.pas',
-  View.Pedido_Itens in 'View\View.Pedido_Itens.pas' {FrmPedido_Itens},
-  Model.Pedido_Itens in 'Model\Model.Pedido_Itens.pas',
-  Controller.Pedido_Itens in 'Controller\Controller.Pedido_Itens.pas';
+  View.PedidoItens in 'View\View.PedidoItens.pas' {FrmPedidoItens},
+  Model.PedidoItens in 'Model\Model.PedidoItens.pas',
+  Controller.PedidoItens in 'Controller\Controller.PedidoItens.pas',
+  Dao.Usuario in 'Dao\Dao.Usuario.pas',
+  Dao.Empresa in 'Dao\Dao.Empresa.pas',
+  Dao.Produto in 'Dao\Dao.Produto.pas',
+  Dao.Imagens in 'Dao\Dao.Imagens.pas',
+  Dao.Pedido in 'Dao\Dao.Pedido.pas',
+  Dao.PedidoItens in 'Dao\Dao.PedidoItens.pas';
 
 {$R *.res}
 

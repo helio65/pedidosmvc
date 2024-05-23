@@ -4,21 +4,20 @@ interface
 
 uses
   Vcl.Forms, Winapi.Windows, Winapi.Messages, System.Classes, System.SysUtils,
-  System.Generics.Collections, System.StrUtils, Framework.Factory, Model.Imagens,
-  View.Imagens, FireDAC.Comp.Client, FireDAC.Stan.Param, Dao.Conexao, Vcl.Dialogs,
-  System.Variants, Vcl.ExtCtrls, Vcl.ExtDlgs, Vcl.Graphics, Data.DB,
-  Vcl.Imaging.jpeg;
+  System.Variants, Vcl.ExtCtrls, Vcl.ExtDlgs, Vcl.Dialogs, Vcl.Graphics,
+  System.StrUtils, System.Generics.Collections, FireDAC.Comp.Client,
+  FireDAC.Stan.Param, Data.DB, Vcl.Imaging.jpeg, Dao.Conexao, Framework.Factory,
+  View.Imagens, Model.Imagens, Dao.Imagens;
 
 type
   TImagensController = class
   private
-    FStrB : TStringBuilder;
-    FQuery : TFDQuery;
     FView : TFrmImagem;
     FFactory : TFactory;
     FStatus : TStatus;
     FCo_Produto : Integer;
     FImagensModel : TImagensModel;
+    FImagensDao : TImagensDao;
     FOpenPictureDialog : TOpenPictureDialog;
     procedure btnFecharClick(Sender : TObject);
     procedure btnNovoClick(Sender : TObject);
@@ -28,9 +27,6 @@ type
     procedure btnApagarClick(Sender: TObject);
     procedure FormKeyPress(Sender: TObject; var Key: Char);
   public
-    function Delete(co_imagem : Integer) : Boolean;
-    procedure Save(aObject : TImagensModel);
-    function GetAll(co_produto : Integer) : TObjectList<TImagensModel>;
     constructor Create(co_produto : Integer);
     destructor Destroy; override;
   end;
@@ -45,7 +41,7 @@ begin
   begin
     Self.FStatus := TStatus.dsDelete;
     Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-    if Self.Delete(Self.FView.FDMImagensCO_IMAGEM.AsInteger) then
+    if Self.FImagensDao.Delete(Self.FView.FDMImagensCO_IMAGEM.AsInteger) then
       Self.FormShow(Sender);
   end;
 end;
@@ -75,7 +71,10 @@ begin
     Self.FImagensModel.co_produto  := Self.FView.FDMImagensCO_PRODUTO.AsInteger;
     Self.FImagensModel.im_produto  := LStream;
     Self.FImagensModel.tx_extensao := Self.FView.FDMImagensTX_EXTENSAO.AsString;
-    Self.Save(Self.FImagensModel);
+    if Self.FImagensDao.Insert(Self.FImagensModel) then
+    begin
+
+    end;
     Self.FStatus := TStatus.dsBrowse;
     Self.FFactory.ControlControls(Self.FView, Self.FStatus);
     Self.FFactory.EnableDisableControls(Self.FView, aDisable);
@@ -100,6 +99,7 @@ begin
       try
         if not Self.FView.FDMImagens.Active then
           Self.FView.FDMImagens.Open;
+
         Self.FView.FDMImagens.Insert;
         Self.FView.FDMImagensCO_IMAGEM.AsInteger := Self.FFactory.GetNextID('INC_CO_IMAGEM', DMConexao.Conexao);
         Self.FView.FDMImagensCO_PRODUTO.AsInteger := Self.FCo_Produto;
@@ -121,9 +121,6 @@ end;
 constructor TImagensController.Create(co_produto : Integer);
 begin
   inherited Create;
-  Self.FStrB                     := TStringBuilder.Create;
-  Self.FQuery                    := TFDQuery.Create(nil);
-  Self.FQuery.Connection         := DMConexao.Conexao;
   Self.FView                     := TFrmImagem.Create(nil);
   Self.FView.KeyPreview          := True;
   Self.FView.btnFechar.OnClick   := Self.btnFecharClick;
@@ -135,47 +132,19 @@ begin
   Self.FView.btnApagar.OnClick   := Self.btnApagarClick;
   Self.FFactory                  := TFactory.Create;
   Self.FImagensModel             := TImagensModel.Create;
+  Self.FImagensDao               := TImagensDao.Create;
   Self.FCo_Produto               := co_produto;
   Self.FOpenPictureDialog        := TOpenPictureDialog.Create(nil);
   Self.FOpenPictureDialog.Filter := 'jpg|*.jpg|png|*.png|bmp|*.bmp';
   Self.FView.ShowModal;
 end;
 
-function TImagensController.Delete(co_imagem: Integer): Boolean;
-begin
-  Self.FStatus := TStatus.dsDelete;
-  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-  Self.FStrB.Clear;
-  Self.FStrB.AppendLine('DELETE FROM PRODUTO_IMAGEM      ')
-            .AppendLine('  WHERE CO_IMAGEM = :CO_IMAGEM; ');
-
-  Self.FQuery.SQL.Clear;
-  Self.FQuery.SQL.Text                            := Self.FStrB.ToString;
-  Self.FQuery.ParamByName('CO_IMAGEM').AsInteger := co_imagem;
-  if not Self.FQuery.Connection.InTransaction then
-    Self.FQuery.Connection.StartTransaction;
-  try
-    Self.FQuery.ExecSQL;
-    Self.FQuery.Connection.Commit;
-    Result := True;
-  except
-    on e : exception do
-    begin
-      Self.FStatus := TStatus.dsBrowse;
-      Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-      Self.FQuery.Connection.Rollback;
-      raise Exception.Create(e.Message);
-    end;
-  end;
-end;
-
 destructor TImagensController.Destroy;
 begin
-  FreeAndNil(Self.FStrB);
-  FreeAndNil(Self.FQuery);
   FreeAndNil(Self.FFactory);
   FreeAndNil(Self.FImagensModel);
   FreeAndNil(Self.FOpenPictureDialog);
+  FreeAndNil(Self.FImagensDao);
   FreeAndNil(Self.FView);
   inherited;
 end;
@@ -196,7 +165,7 @@ var
   LStream : TMemoryStream;
   LJpg : TJpegImage;
 begin
-  LImagens := Self.GetAll(Self.FCo_Produto);;
+  LImagens := Self.FImagensDao.GetAll(Self.FCo_Produto);;
   try
     if LImagens.Count > 0 then
     begin
@@ -241,99 +210,6 @@ begin
       FreeAndNil(LStreamD);
     end;
     FreeAndNil(LImagens);
-  end;
-end;
-
-function TImagensController.GetAll(co_produto : Integer): TObjectList<TImagensModel>;
-var
-  LImagens : TImagensModel;
-  LJpg : TJpegImage;
-  LStream : TMemoryStream;
-begin
-  Self.FStrB.Clear;
-  Self.FStrB.AppendLine('SELECT CO_IMAGEM, CO_PRODUTO, IM_PRODUTO, TX_EXTENSAO, ')
-            .AppendLine('       DT_CADASTRO                                     ')
-            .AppendLine('  FROM PRODUTO_IMAGEM                                  ')
-            .AppendLine('  WHERE CO_PRODUTO = :CO_PRODUTO;                      ');
-
-  Self.FQuery.Close;
-  Self.FQuery.SQL.Clear;
-  Self.FQuery.SQL.Text := Self.FStrB.ToString;
-  Self.FQuery.ParamByName('CO_PRODUTO').AsInteger := co_produto;
-  if not Self.FQuery.Connection.InTransaction then
-    Self.FQuery.Connection.StartTransaction;
-  try
-    Self.FQuery.Open;
-    Self.FQuery.Connection.Commit;
-  except
-    Self.FQuery.Connection.Rollback;
-  end;
-  Result := TObjectList<TImagensModel>.Create;
-  if Self.FQuery.RecordCount > 0 then
-  begin
-    while not Self.FQuery.Eof do
-    begin
-      LStream := TMemoryStream.Create;
-      LJpg    := TJPEGImage.Create;
-      try
-        LImagens             := TImagensModel.Create;
-        LImagens.co_imagem   := Self.FQuery.FieldByName('CO_IMAGEM').AsInteger;
-        LImagens.co_produto  := Self.FQuery.FieldByName('CO_PRODUTO').AsInteger;
-        TBlobField(Self.FQuery.FieldByName('IM_PRODUTO')).SaveToStream(LStream);
-
-        LJpg.LoadFromStream(LStream);
-        LStream.Position := 0;
-
-        LImagens.im_produto  := LStream;
-        LImagens.tx_extensao := Self.FQuery.FieldByName('TX_EXTENSAO').AsString;
-        LImagens.dt_cadastro := Self.FQuery.FieldByName('DT_CADASTRO').AsDateTime;
-        Result.Add(LImagens);
-        Self.FQuery.Next;
-      finally
-        FreeAndNil(LJpg);
-      end;
-    end;
-  end;
-end;
-
-procedure TImagensController.Save(aObject: TImagensModel);
-var
-  LStream : TMemoryStream;
-  LJpg : TJpegImage;
-begin
-  LStream := TMemoryStream.Create;
-  LJpg    := TJpegImage.Create;
-  try
-    Self.FStrB.Clear;
-    Self.FStrB.AppendLine('INSERT INTO PRODUTO_IMAGEM (CO_IMAGEM, CO_PRODUTO, IM_PRODUTO, TX_EXTENSAO)      ')
-              .AppendLine('                    VALUES (:CO_IMAGEM, :CO_PRODUTO, :IM_PRODUTO, :TX_EXTENSAO); ');
-
-    Self.FQuery.SQL.Clear;
-    Self.FQuery.SQL.Text                            := Self.FStrB.ToString;
-    Self.FQuery.ParamByName('CO_IMAGEM').AsInteger  := aObject.co_imagem;
-    Self.FQuery.ParamByName('CO_PRODUTO').AsInteger := aObject.co_produto;
-    Self.FQuery.ParamByName('TX_EXTENSAO').AsString := aObject.tx_extensao;
-
-    LJpg.LoadFromStream(aObject.im_produto);
-    LJpg.SaveToStream(LStream);
-    LStream.Position := 0;
-    Self.FQuery.ParamByName('IM_PRODUTO').LoadFromStream(LStream, ftGraphic);
-
-    if not Self.FQuery.Connection.InTransaction then
-      Self.FQuery.Connection.StartTransaction;
-    try
-      Self.FQuery.ExecSQL;
-      Self.FQuery.Connection.Commit;
-    except
-      on e : exception do
-      begin
-        Self.FQuery.Connection.Rollback;
-        raise Exception.Create(e.Message);
-      end;
-    end;
-  finally
-    FreeAndNil(LJpg);
-    FreeAndNil(LStream);
   end;
 end;
 

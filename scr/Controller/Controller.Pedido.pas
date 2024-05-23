@@ -6,20 +6,19 @@ uses
   Vcl.Forms, Winapi.Windows, Winapi.Messages, System.Classes, System.SysUtils,
   System.Generics.Collections, Framework.Factory, Model.Pedido, View.Pedido,
   FireDAC.Comp.Client, FireDAC.Stan.Param, Dao.Conexao,
-  Vcl.Dialogs, System.Variants, Data.DB, Controller.Pedido_Itens;
+  Vcl.Dialogs, System.Variants, Data.DB, Controller.PedidoItens, Dao.Pedido;
 
 type
   TPedidoController = class
   private
-    FStrB : TStringBuilder;
-    FQuery : TFDQuery;
     FView : TFrmPedido;
     FFactory : TFactory;
     FStatus : TStatus;
     FPedidoModel : TPedidoModel;
+    FPedidoDao   : TPedidoDao;
     FCampoPesquisa : String;
     FNu_Pedido : Integer;
-    FPedido_ItensController : TPedido_ItensController;
+    FPedido_ItensController : TPedidoItensController;
     procedure btnFecharClick(Sender : TObject);
     procedure btnNovoClick(Sender : TObject);
     procedure btnEditarClick(Sender: TObject);
@@ -30,17 +29,12 @@ type
     procedure FormKeyPress(Sender: TObject; var Key: Char);
     procedure gridBaseDblClick(Sender: TObject);
     procedure FDMPedidoAfterScroll(DataSet: TDataSet);
-    procedure ToLoadComboCliente;
     procedure btnProdutosClick(Sender: TObject);
     procedure rdgPesquisaClick(Sender: TObject);
     procedure comboPesqStatusChange(Sender: TObject);
     procedure edtNumeroChange(Sender: TObject);
     procedure FDQClientesPesqAfterScroll(DataSet: TDataSet);
   public
-    procedure Insert;
-    function Delete(nu_pedido : Integer) : Boolean;
-    procedure Save(aObject : TPedidoModel);
-    function GetAll : TObjectList<TPedidoModel>;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -55,7 +49,7 @@ begin
   begin
     Self.FStatus := TStatus.dsDelete;
     Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-    if Self.Delete(Self.FView.FDMPedidoNU_PEDIDO.AsInteger) then
+    if Self.FPedidoDao.Delete(Self.FView.FDMPedidoNU_PEDIDO.AsInteger) then
     begin
       Self.FFactory.ClearControls(Self.FView);
       Self.FormShow(Sender);
@@ -144,10 +138,30 @@ begin
       end
       else
         Self.FPedidoModel.nu_pedido  := StrToInt(Self.FView.edtCodigo.Text);
+
       Self.FPedidoModel.co_empresa   := Self.FView.comboCliente.KeyValue;
       Self.FPedidoModel.in_situacao  := Copy(Self.FView.comboStatus.Text, 1, 1);
       Self.FPedidoModel.vl_pedido    := 0.00;
-      Self.Save(Self.FPedidoModel);
+
+      if Self.FStatus = TStatus.dsInsert then
+      begin
+
+        Self.FPedidoDao.Insert(Self.FPedidoModel);
+
+        if not Self.FView.FDMPedido.Active then
+          Self.FView.FDMPedido.Open;
+
+        Self.FView.FDMPedido.Insert;
+        Self.FView.FDMPedidoNU_PEDIDO.AsInteger    := FPedidoModel.nu_pedido;
+        Self.FView.FDMPedidoCO_EMPRESA.AsInteger   := FPedidoModel.co_empresa;
+        Self.FView.FDMPedidoIN_SITUACAO.AsString   := FPedidoModel.in_situacao;
+        Self.FView.FDMPedidoVL_PEDIDO.AsCurrency   := 0.00;
+        Self.FView.FDMPedidoDT_CADASTRO.AsDateTime := Self.FPedidoDao.GetDateTime;
+        Self.FView.FDMPedido.Post;
+
+      end else if Self.FStatus = TStatus.dsEdit then
+        Self.FPedidoDao.Update(Self.FPedidoModel);
+
       Self.FStatus := TStatus.dsBrowse;
       Self.FFactory.ControlControls(Self.FView, Self.FStatus);
       Self.FFactory.EnableDisableControls(Self.FView, aDisable);
@@ -159,7 +173,14 @@ end;
 
 procedure TPedidoController.btnNovoClick(Sender: TObject);
 begin
-  Self.Insert;
+  Self.FFactory.ClearControls(Self.FView);
+  Self.FFactory.EnableDisableControls(Self.FView, aEnable);
+  Self.FView.comboCliente.SetFocus;
+  Self.FView.edtCodigo.Text        := FormatFloat('000000', Self.FPedidoDao.GetNewID('INC_NU_PEDIDO'));
+  Self.FView.comboStatus.ItemIndex := 1;
+  Self.FView.edtValorPedido.Text   := '0,00';
+  Self.FStatus := TStatus.dsInsert;
+  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
 end;
 
 procedure TPedidoController.btnProdutosClick(Sender: TObject);
@@ -175,7 +196,7 @@ begin
 
   try
     FNu_Pedido := Self.FView.FDMPedidoNU_PEDIDO.AsInteger;
-    Self.FPedido_ItensController := TPedido_ItensController.Create(FNu_Pedido);
+    Self.FPedido_ItensController := TPedidoItensController.Create(FNu_Pedido);
     Self.FormShow(Sender);
   finally
     FreeAndNil(Self.FPedido_ItensController);
@@ -196,11 +217,9 @@ end;
 
 constructor TPedidoController.Create;
 begin
-  Self.FStrB                             := TStringBuilder.Create;
-  Self.FQuery                            := TFDQuery.Create(nil);
-  Self.FQuery.Connection                 := DMConexao.Conexao;
   Self.FFactory                          := TFactory.Create;
   Self.FPedidoModel                      := TPedidoModel.Create;
+  Self.FPedidoDao                        := TPedidoDao.Create;
   Self.FView                             := TFrmPedido.Create(nil);
   Self.FView.KeyPreview                  := True;
   Self.FView.btnFechar.OnClick           := Self.btnFecharClick;
@@ -235,47 +254,18 @@ begin
   Self.FView.ShowModal;
 end;
 
-function TPedidoController.Delete(nu_pedido: Integer): Boolean;
-begin
-  Self.FStatus := TStatus.dsDelete;
-  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-  Self.FStrB.Clear;
-  Self.FStrB.AppendLine('DELETE FROM PEDIDO               ')
-            .AppendLine('  WHERE NU_PEDIDO = :NU_PEDIDO; ');
-
-  Self.FQuery.SQL.Clear;
-  Self.FQuery.SQL.Text                            := Self.FStrB.ToString;
-  Self.FQuery.ParamByName('NU_PEDIDO').AsInteger := nu_pedido;
-  if not Self.FQuery.Connection.InTransaction then
-    Self.FQuery.Connection.StartTransaction;
-  try
-    Self.FQuery.ExecSQL;
-    Self.FQuery.Connection.Commit;
-    Result := True;
-  except
-    on e : exception do
-    begin
-      Self.FStatus := TStatus.dsBrowse;
-      Self.FFactory.ControlControls(Self.FView, Self.FStatus);
-      Self.FQuery.Connection.Rollback;
-      raise Exception.Create(e.Message);
-    end;
-  end;
-end;
-
 destructor TPedidoController.Destroy;
 begin
-  FreeAndNil(Self.FStrB);
-  FreeAndNil(Self.FQuery);
   FreeAndNil(Self.FFactory);
   FreeAndNil(Self.FPedidoModel);
+  FreeAndNil(Self.FPedidoDao);
   FreeAndNil(Self.FView);
   inherited;
 end;
 
 procedure TPedidoController.edtNumeroChange(Sender: TObject);
 begin
-  if Self.FStatus = TStatus.dsBrowse then
+  if (Self.FStatus = TStatus.dsBrowse) or (String(Self.FView.edtNumero.Text).IsEmpty) then
     Exit;
   Self.FView.FDMPedido.Filtered := False;
   Self.FView.FDMPedido.DisableControls;
@@ -331,7 +321,7 @@ var
   LPedidos : TObjectList<TPedidoModel>;
   aIndex: Integer;
 begin
-  LPedidos := Self.GetAll;
+  LPedidos := Self.FPedidoDao.GetAll;
   try
     if LPedidos.Count > 0 then
     begin
@@ -353,8 +343,7 @@ begin
       if Self.FNu_Pedido > 0 then
       begin
         if Self.FView.FDMPedido.Locate('NU_PEDIDO', Self.FNu_Pedido, []) then
-          ShowMessage(Self.FView.FDMPedidoNU_PEDIDO.AsString);
-        Self.FNu_Pedido := 0;
+          Self.FNu_Pedido := 0;
       end
       else
         Self.FView.FDMPedido.First;
@@ -365,7 +354,8 @@ begin
       Self.FFactory.ControlControls(Self.FView, Self.FStatus);
       Self.FView.FDMPedido.Close;
     end;
-    Self.ToLoadComboCliente;
+    Self.FPedidoDao.ToLoadComboCliente(Self.FView.FDQClientes);
+    Self.FPedidoDao.ToLoadComboCliente(Self.FView.FDQClientesPesq);
     Self.FFactory.EnableDisableControls(Self.FView, aDisable);
     if LPedidos.Count > 0 then
       Self.FView.rdgPesquisa.Enabled := True;
@@ -374,61 +364,9 @@ begin
   end;
 end;
 
-function TPedidoController.GetAll: TObjectList<TPedidoModel>;
-var
-  LPedidos : TPedidoModel;
-begin
-  Self.FStrB.Clear;
-  Self.FStrB.AppendLine('SELECT NU_PEDIDO, CO_EMPRESA, IN_SITUACAO,  ')
-            .AppendLine('       VL_PEDIDO, DT_CADASTRO, DT_ALTERACAO ')
-            .AppendLine('  FROM PEDIDO                               ')
-            .AppendLine('  ORDER BY DT_CADASTRO;                     ');
-
-  Self.FQuery.Close;
-  Self.FQuery.SQL.Clear;
-  Self.FQuery.SQL.Text := Self.FStrB.ToString;
-  if not Self.FQuery.Connection.InTransaction then
-    Self.FQuery.Connection.StartTransaction;
-  try
-    Self.FQuery.Open;
-    Self.FQuery.Connection.Commit;
-  except
-    Self.FQuery.Connection.Rollback;
-  end;
-  Result := TObjectList<TPedidoModel>.Create;
-  if Self.FQuery.RecordCount > 0 then
-  begin
-    while not Self.FQuery.Eof do
-    begin
-      LPedidos             := TPedidoModel.Create;
-      LPedidos.nu_pedido   := Self.FQuery.FieldByName('NU_PEDIDO').AsInteger;
-      LPedidos.co_empresa  := Self.FQuery.FieldByName('CO_EMPRESA').AsInteger;
-      LPedidos.in_situacao := Self.FQuery.FieldByName('IN_SITUACAO').AsString;
-      LPedidos.vl_pedido   := Self.FQuery.FieldByName('VL_PEDIDO').AsFloat;
-      LPedidos.dt_cadastro := Self.FQuery.FieldByName('DT_CADASTRO').AsDateTime;
-      if not Self.FQuery.FieldByName('DT_ALTERACAO').IsNull then
-        LPedidos.dt_alteracao    := Self.FQuery.FieldByName('DT_ALTERACAO').AsDateTime;
-      Result.Add(LPedidos);
-      Self.FQuery.Next;
-    end;
-  end;
-end;
-
 procedure TPedidoController.gridBaseDblClick(Sender: TObject);
 begin
   Self.btnEditarClick(Sender);
-end;
-
-procedure TPedidoController.Insert;
-begin
-  Self.FFactory.ClearControls(Self.FView);
-  Self.FFactory.EnableDisableControls(Self.FView, aEnable);
-  Self.FView.comboCliente.SetFocus;
-  Self.FView.edtCodigo.Text        := FormatFloat('000000', Self.FFactory.GetNextID('INC_NU_PEDIDO', DMConexao.Conexao));
-  Self.FView.comboStatus.ItemIndex := 1;
-  Self.FView.edtValorPedido.Text   := '0,00';
-  Self.FStatus := TStatus.dsInsert;
-  Self.FFactory.ControlControls(Self.FView, Self.FStatus);
 end;
 
 procedure TPedidoController.rdgPesquisaClick(Sender: TObject);
@@ -455,108 +393,6 @@ begin
           Self.FView.edtNumero.Visible        := False;
           Self.FCampoPesquisa                 := 'CO_EMPRESA';
         end;
-  end;
-end;
-
-procedure TPedidoController.Save(aObject: TPedidoModel);
-begin
-  if Self.FStatus = TStatus.dsInsert then
-  begin
-    Self.FStrB.Clear;
-    Self.FStrB.AppendLine('INSERT INTO PEDIDO (NU_PEDIDO, CO_EMPRESA, IN_SITUACAO)      ')
-              .AppendLine('             VALUES (:NU_PEDIDO, :CO_EMPRESA, :IN_SITUACAO); ');
-
-    Self.FQuery.SQL.Clear;
-    Self.FQuery.SQL.Text                            := Self.FStrB.ToString;
-    Self.FQuery.ParamByName('NU_PEDIDO').AsInteger  := aObject.nu_pedido;
-    Self.FQuery.ParamByName('CO_EMPRESA').AsInteger := aObject.co_empresa;
-    Self.FQuery.ParamByName('IN_SITUACAO').AsString := aObject.in_situacao;
-
-    if not Self.FView.FDMPedido.Active then
-      Self.FView.FDMPedido.Open;
-
-    Self.FView.FDMPedido.Insert;
-    Self.FView.FDMPedidoNU_PEDIDO.AsInteger    := aObject.nu_pedido;
-    Self.FView.FDMPedidoCO_EMPRESA.AsInteger   := aObject.co_empresa;
-    Self.FView.FDMPedidoIN_SITUACAO.AsString   := aObject.in_situacao;
-    Self.FView.FDMPedidoVL_PEDIDO.AsCurrency   := 0.00;
-    Self.FView.FDMPedidoDT_CADASTRO.AsDateTime := Self.FFactory.GetCurrentTimeStamp(DMConexao.Conexao);
-    Self.FView.FDMPedido.Post;
-
-    if not Self.FQuery.Connection.InTransaction then
-      Self.FQuery.Connection.StartTransaction;
-    try
-      Self.FQuery.ExecSQL;
-      Self.FQuery.Connection.Commit;
-    except
-      on e : exception do
-      begin
-        Self.FQuery.Connection.Rollback;
-        raise Exception.Create(e.Message);
-      end;
-    end;
-  end else if Self.FStatus = TStatus.dsEdit then
-  begin
-    Self.FStrB.Clear;
-    Self.FStrB.AppendLine('UPDATE PEDIDO                      ')
-              .AppendLine('  SET IN_SITUACAO  = :IN_SITUACAO, ')
-              .AppendLine('      DT_ALTERACAO = :DT_ALTERACAO ')
-              .AppendLine('  WHERE NU_PEDIDO = :NU_PEDIDO;    ');
-
-    Self.FQuery.SQL.Clear;
-    Self.FQuery.SQL.Text                               := Self.FStrB.ToString;
-    Self.FQuery.ParamByName('IN_SITUACAO').AsString    := aObject.in_situacao;
-    Self.FQuery.ParamByName('DT_ALTERACAO').AsDateTime := aObject.dt_alteracao;
-    Self.FQuery.ParamByName('NU_PEDIDO').AsInteger     := aObject.nu_pedido;
-
-    if not Self.FQuery.Connection.InTransaction then
-      Self.FQuery.Connection.StartTransaction;
-    try
-      Self.FQuery.ExecSQL;
-      Self.FQuery.Connection.Commit;
-    except
-      on e : exception do
-      begin
-        Self.FQuery.Connection.Rollback;
-        raise Exception.Create(e.Message);
-      end;
-    end;
-  end;
-end;
-
-procedure TPedidoController.ToLoadComboCliente;
-begin
-  Self.FStrB.Clear;
-  Self.FStrB.AppendLine('SELECT CO_EMPRESA, NM_RAZAO_SOCIAL ')
-            .AppendLine('  FROM EMPRESA                     ')
-            .AppendLine('  ORDER BY NM_RAZAO_SOCIAL         ');
-
-  Self.FView.FDQClientes.Close;
-  Self.FView.FDQClientes.SQL.Clear;
-  Self.FView.FDQClientes.Connection := DMConexao.Conexao;
-  Self.FView.FDQClientes.SQL.Text   := Self.FStrB.ToString;
-
-  if not Self.FView.FDQClientes.Connection.InTransaction then
-    Self.FView.FDQClientes.Connection.StartTransaction;
-  try
-    Self.FView.FDQClientes.Open;
-    Self.FView.FDQClientes.Connection.Commit;
-  except
-    Self.FView.FDQClientes.Connection.Rollback;
-  end;
-
-  Self.FView.FDQClientesPesq.Close;
-  Self.FView.FDQClientesPesq.SQL.Clear;
-  Self.FView.FDQClientesPesq.Connection := DMConexao.Conexao;
-  Self.FView.FDQClientesPesq.SQL.Text   := Self.FStrB.ToString;
-
-  if not Self.FView.FDQClientesPesq.Connection.InTransaction then
-    Self.FView.FDQClientesPesq.Connection.StartTransaction;
-  try
-    Self.FView.FDQClientesPesq.Open;
-    Self.FView.FDQClientesPesq.Connection.Commit;
-  except
-    Self.FView.FDQClientesPesq.Connection.Rollback;
   end;
 end;
 
